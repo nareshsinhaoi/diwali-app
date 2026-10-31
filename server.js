@@ -3,7 +3,10 @@ import express from 'express';
 import mysql from 'mysql2';
 import cors from 'cors';
 import 'dotenv/config';
-import { createServer as createViteServer } from 'vite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
@@ -16,6 +19,7 @@ const db = mysql.createPool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -114,14 +118,22 @@ app.post('/api/users/update-counts', (req, res) => {
 });
 
 const startServer = async () => {
-  const vite = await createViteServer({
-    server: {
-      middlewareMode: true,
-    },
-    appType: 'spa',
-  });
-
-  app.use(vite.middlewares);
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        return next();
+      }
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
 
   const PORT = Number(process.env.PORT || 5173);
   app.listen(PORT, '0.0.0.0', () => {
