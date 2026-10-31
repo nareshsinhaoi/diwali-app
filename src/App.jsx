@@ -329,6 +329,12 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [userMobile, setUserMobile] = useState('');
   const [savedUser, setSavedUser] = useState({ name: '', mobile: '' });
+  const [isSavingUser, setIsSavingUser] = useState(false);
+  const [registerError, setRegisterError] = useState('');
+  const [userId, setUserId] = useState(() => {
+    const savedUserId = localStorage.getItem('diwali_user_id');
+    return savedUserId ? Number(savedUserId) : null;
+  });
 
   // Counter States
   const [homeDiyasLit, setHomeDiyasLit] = useState(0);
@@ -541,16 +547,61 @@ export default function App() {
   // EVENT HANDLERS & ACTIONS
   // ==========================================
 
-  // Save User Profile
-  const handleSaveUser = (e) => {
-    if (e) e.preventDefault();
-    if (!userName.trim()) return;
+  const updateUserCounts = async (diyasLit, crackersBurst) => {
+    if (!userId) return;
 
-    const profile = { name: userName, mobile: userMobile || 'N/A' };
+    try {
+      const response = await fetch('/api/users/update-counts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, diyasLit, crackersBurst }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Could not update activity counts');
+      }
+    } catch (error) {
+      console.error(error.message || 'Could not update activity counts');
+    }
+  };
+
+  // Save User Profile
+  const handleSaveUser = async (e) => {
+    if (e) e.preventDefault();
+    const name = userName.trim();
+    const mobile = userMobile.trim();
+    if (!name) return;
+
+    setIsSavingUser(true);
+    setRegisterError('');
+
+    try {
+      const response = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mobile: mobile || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not save your details');
+      }
+      if (data.userId) {
+        setUserId(data.userId);
+        localStorage.setItem('diwali_user_id', data.userId.toString());
+      }
+    } catch (error) {
+      setRegisterError(error.message || 'Could not connect to the database server');
+      setIsSavingUser(false);
+      return;
+    }
+
+    const profile = { name, mobile: mobile || 'N/A' };
     setSavedUser(profile);
-    localStorage.setItem('diwali_user_name', userName);
-    localStorage.setItem('diwali_user_mobile', userMobile);
+    localStorage.setItem('diwali_user_name', name);
+    localStorage.setItem('diwali_user_mobile', mobile);
     setShowRegisterModal(false);
+    setIsSavingUser(false);
 
     // Save to Firestore private collection safely
     if (user && db) {
@@ -571,6 +622,9 @@ export default function App() {
   const handleDiyaClick = (id) => {
     audioFX.playDiyaLighting();
 
+    const selectedDiya = diyaMatrix.find(d => d.id === id);
+    const delta = selectedDiya?.lit ? -1 : 1;
+
     setDiyaMatrix(prev => prev.map(d => {
       if (d.id === id) {
         return { ...d, lit: !d.lit };
@@ -578,9 +632,10 @@ export default function App() {
       return d;
     }));
 
-    const newLitCount = homeDiyasLit + 1;
+    const newLitCount = Math.max(0, homeDiyasLit + delta);
     setHomeDiyasLit(newLitCount);
     localStorage.setItem('diwali_home_diyas', newLitCount.toString());
+    updateUserCounts(newLitCount, totalCrackersBurst);
 
     // Update community count in Firestore with permission error catch
     if (user && db) {
@@ -602,11 +657,12 @@ export default function App() {
   // Light All Diyas instantly
   const handleLightAllDiyas = () => {
     audioFX.playDiyaLighting();
-    setDiyaMatrix(prev => prev.map(d => ({ ...d, lit: true })));
     const added = diyaMatrix.filter(d => !d.lit).length;
-    const newCount = homeDiyasLit + (added || 12);
+    const newCount = homeDiyasLit + added;
+    setDiyaMatrix(prev => prev.map(d => ({ ...d, lit: true })));
     setHomeDiyasLit(newCount);
     localStorage.setItem('diwali_home_diyas', newCount.toString());
+    updateUserCounts(newCount, totalCrackersBurst);
   };
 
   // Send Virtual Diya to City
@@ -645,6 +701,7 @@ export default function App() {
     const newBurstCount = totalCrackersBurst + 1;
     setTotalCrackersBurst(newBurstCount);
     localStorage.setItem('diwali_crackers_burst', newBurstCount.toString());
+    updateUserCounts(homeDiyasLit, newBurstCount);
 
     // Sync total crackers to Firestore safely
     if (user && db) {
@@ -1247,7 +1304,7 @@ export default function App() {
         {/* FOOTER */}
         <footer className="text-center py-6 text-xs text-slate-500 space-y-1 mt-auto">
           <p>Wishing You & Your Family A Very Happy, Safe & Prosperous Diwali! 🪔✨</p>
-          <p className="text-[10px] text-slate-600">Created with Love & Festive Joy • Zero Real Firecrackers Used</p>
+          <p className="text-[10px] text-slate-600">Created with Love & Festive Joy • Zero Real Firecrackers Used  •  © 2026 <a href='https://modulelabs.in' target='_blank'>ModuleLabs.in</a>  • All Rights Reserved.</p>
         </footer>
 
       </div>
@@ -1290,6 +1347,8 @@ export default function App() {
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  maxLength={20}
                   placeholder="e.g. 9876543210"
                   value={userMobile}
                   onChange={(e) => setUserMobile(e.target.value)}
@@ -1297,11 +1356,18 @@ export default function App() {
                 />
               </div>
 
+              {registerError && (
+                <p role="alert" className="text-xs text-red-400">
+                  {registerError}
+                </p>
+              )}
+
               <button
                 type="submit"
+                disabled={isSavingUser}
                 className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-xl shadow-amber-500/20 transition-all active:scale-95"
               >
-                Start Celebration & Light Diyas 🪔
+                {isSavingUser ? 'Saving...' : 'Start Celebration & Light Diyas 🪔'}
               </button>
             </form>
 
