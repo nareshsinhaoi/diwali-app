@@ -15,6 +15,14 @@ An interactive, eco-friendly Diwali celebration app built with React and Vite. U
 - Save a display name and mobile number locally
 - Toggle synthesized sound effects on or off
 
+---
+
+## Application Preview
+
+![Subs Dashboard](public/screenshot-thumb.jpg)
+
+---
+
 ## Tech Stack
 
 - React 19
