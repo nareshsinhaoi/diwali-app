@@ -329,6 +329,8 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [userMobile, setUserMobile] = useState('');
   const [savedUser, setSavedUser] = useState({ name: '', mobile: '' });
+  const [isSavingUser, setIsSavingUser] = useState(false);
+  const [registerError, setRegisterError] = useState('');
 
   // Counter States
   const [homeDiyasLit, setHomeDiyasLit] = useState(0);
@@ -542,15 +544,35 @@ export default function App() {
   // ==========================================
 
   // Save User Profile
-  const handleSaveUser = (e) => {
+  const handleSaveUser = async (e) => {
     if (e) e.preventDefault();
-    if (!userName.trim()) return;
+    const name = userName.trim();
+    const mobile = userMobile.trim();
+    if (!name) return;
 
-    const profile = { name: userName, mobile: userMobile || 'N/A' };
+    setIsSavingUser(true);
+    setRegisterError('');
+
+    try {
+      const response = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mobile: mobile || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not save your details');
+    } catch (error) {
+      setRegisterError(error.message || 'Could not connect to the database server');
+      setIsSavingUser(false);
+      return;
+    }
+
+    const profile = { name, mobile: mobile || 'N/A' };
     setSavedUser(profile);
-    localStorage.setItem('diwali_user_name', userName);
-    localStorage.setItem('diwali_user_mobile', userMobile);
+    localStorage.setItem('diwali_user_name', name);
+    localStorage.setItem('diwali_user_mobile', mobile);
     setShowRegisterModal(false);
+    setIsSavingUser(false);
 
     // Save to Firestore private collection safely
     if (user && db) {
